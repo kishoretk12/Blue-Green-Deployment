@@ -28,7 +28,7 @@ pipeline {
         }
         stage('Maven Test') {
             steps {
-                sh "mvn test -DskipTests=true"
+                sh "mvn test"
             }
         }
         stage('Trivy FS Scan') {
