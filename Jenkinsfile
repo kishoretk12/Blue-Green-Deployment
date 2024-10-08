@@ -4,21 +4,24 @@ pipeline {
     tools {
         maven 'maven3'
     }
+    
     parameters {
         choice(name: 'DEPLOY_ENV', choices: ['blue', 'green'], description: 'Choose which environment to deploy: Blue or Green')
         choice(name: 'DOCKER_TAG', choices: ['blue', 'green'], description: 'Choose the Docker image tag for the deployment')
         booleanParam(name: 'SWITCH_TRAFFIC', defaultValue: false, description: 'Switch traffic between Blue and Green')
     } 
+    
     environment {
         IMAGE_NAME = "adijaiswal/bankapp"
         TAG = "${params.DOCKER_TAG}"
         KUBE_NAMESPACE = 'webapps'
-        SCANNER_HOME= tool 'sonar-scanner'
+        SCANNER_HOME = tool 'sonar-scanner'
     }
+    
     stages {
         stage('Git checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/kishoretk12/Blue-Green-Deployment.git', credentialsId: 'git-cred' 
+                git branch: 'main', url: 'https://github.com/kishoretk12/Blue-Green-Deployment.git', credentialsId: 'git-cred'
             }
         }
         stage('Compile') {
@@ -33,13 +36,13 @@ pipeline {
         }
         stage('Trivy FS scan') {
             steps {
-                sh "trivy fs --format -o fs.html ."
+                sh "trivy fs --format table -o fs.html ."
             }
         }
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonar') {
-                    sh "$SCANNER_HOME/bin/sonar-scanner -Dsonar.projectKey=Multitier -Dsonar.projectName=Multitier -Dsonar.java.binaries-target"
+                    sh "$SCANNER_HOME/bin/sonar-scanner -Dsonar.projectKey=Multitier -Dsonar.projectName=Multitier -Dsonar.java.binaries=target"
                 }
             }
         }
@@ -73,7 +76,7 @@ pipeline {
         }
         stage('Trivy Image Scan') {
             steps {
-                sh "trivy fs --format -o fs.html ${IMAGE_NAME}:${TAG}"
+                sh "trivy image --format table -o image-scan.html ${IMAGE_NAME}:${TAG}"
             }
         }
         stage('Docker Image Push') {
