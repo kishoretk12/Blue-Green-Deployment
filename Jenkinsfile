@@ -1,41 +1,68 @@
 pipeline {
     agent any
-    
+
+    tools {
+        maven 'maven3'
+    }
     parameters {
         choice(name: 'DEPLOY_ENV', choices: ['blue', 'green'], description: 'Choose which environment to deploy: Blue or Green')
         choice(name: 'DOCKER_TAG', choices: ['blue', 'green'], description: 'Choose the Docker image tag for the deployment')
         booleanParam(name: 'SWITCH_TRAFFIC', defaultValue: false, description: 'Switch traffic between Blue and Green')
-    }
-    
+    } 
     environment {
-        IMAGE_NAME = "adijaiswal/bankapp"
-        TAG = "${params.DOCKER_TAG}"  // The image tag now comes from the parameter
+        IMAGE_NAME = "kishoretk12/bankapp"
+        TAG = "${params.DOCKER_TAG}"
         KUBE_NAMESPACE = 'webapps'
         SCANNER_HOME= tool 'sonar-scanner'
     }
-
     stages {
-        stage('Git Checkout') {
+        stage('Git checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/kishoretk12/Blue-Green-Deployment.git'
+                git branch: 'main', url: 'https://github.com/kishoretk12/Blue-Green-Deployment.git' 
             }
         }
-        
+        stage('Compile') {
+            steps {
+                sh "mvn compile"
+            }
+        }
+        stage('Maven test') {
+            steps {
+                sh "mvn test -DskipTests=true"
+            }
+        }
+        stage('Trivy FS scan') {
+            steps {
+                sh "trivy fs --format -o fs.html ."
+            }
+        }
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('sonar') {
-                    sh "$SCANNER_HOME/bin/sonar-scanner -Dsonar.projectKey=nodejsmysql -Dsonar.projectName=nodejsmysql"
+                    sh "$SCANNER_HOME/bin/sonar-scanner -Dsonar.projectKey=Multitier -Dsonar.projectName=Multitier -Dsonar.java.binaries-target"
                 }
             }
         }
-        
-        stage('Trivy FS Scan') {
+        stage('Quality-Gate check') {
             steps {
-                sh "trivy fs --format table -o fs.html ."
+                timeout(time: 1, unit: 'HOURS') {
+                    waitForQualityGate abortPipeline: false
+                }
             }
         }
-        
-        stage('Docker build') {
+        stage('Build') {
+            steps {
+                sh "mvn package -DskipTests=true"
+            }
+        }
+        stage('Publish Artifact to Nexus') {
+            steps {
+                withMaven(globalMavenSettingsConfig: 'maven-settings', jdk: '', maven: 'maven3', mavenSettingsConfig: '', traceability: true) {
+                    sh "mvn deploy -DskipTests=true"
+                }
+            }
+        }
+        stage('Docker build & tag Image') {
             steps {
                 script {
                     withDockerRegistry(credentialsId: 'docker-cred') {
@@ -44,14 +71,12 @@ pipeline {
                 }
             }
         }
-        
-        stage('Trivy Image Scan') {
+        stage('Trivy Image scan') {
             steps {
-                sh "trivy image --format table -o image.html ${IMAGE_NAME}:${TAG}"
+                sh "trivy fs --format -o fs.html ${IMAGE_NAME}:${TAG}"
             }
         }
-        
-        stage('Docker Push Image') {
+        stage('Docker Image Push') {
             steps {
                 script {
                     withDockerRegistry(credentialsId: 'docker-cred') {
@@ -60,17 +85,15 @@ pipeline {
                 }
             }
         }
-        
         stage('Deploy MySQL Deployment and Service') {
             steps {
                 script {
                     withKubeConfig(caCertificate: '', clusterName: 'devopsshack-cluster', contextName: '', credentialsId: 'k8-token', namespace: 'webapps', restrictKubeConfigAccess: false, serverUrl: 'https://C582DE09421DCD7DD20C18A7B63125D8.gr7.us-east-1.eks.amazonaws.com') {
-                        sh "kubectl apply -f mysql-ds.yml -n ${KUBE_NAMESPACE}"  // Ensure you have the MySQL deployment YAML ready
+                        sh "kubectl apply -f mysql-ds.yml -n ${KUBE_NAMESPACE}"
                     }
                 }
             }
         }
-        
         stage('Deploy SVC-APP') {
             steps {
                 script {
@@ -79,11 +102,10 @@ pipeline {
                                 kubectl apply -f bankapp-service.yml -n ${KUBE_NAMESPACE}
                               fi
                         """
-                   }
+                    }
                 }
             }
         }
-        
         stage('Deploy to Kubernetes') {
             steps {
                 script {
@@ -100,7 +122,6 @@ pipeline {
                 }
             }
         }
-        
         stage('Switch Traffic Between Blue & Green Environment') {
             when {
                 expression { return params.SWITCH_TRAFFIC }
@@ -119,7 +140,6 @@ pipeline {
                 }
             }
         }
-        
         stage('Verify Deployment') {
             steps {
                 script {
