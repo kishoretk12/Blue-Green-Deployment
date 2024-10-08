@@ -33,7 +33,7 @@ pipeline {
         }
         stage('Trivy FS scan') {
             steps {
-                sh "trivy fs --format -o fs.html ."
+                sh "trivy fs --format table -o fs.html ."
             }
         }
         stage('SonarQube Analysis') {
